@@ -2,6 +2,7 @@ const passport = require("passport");
 const lnurlAuth = require("passport-lnurl-auth");
 const session = require("express-session");
 const { HttpError, verifyAuthorizationSignature } = require("lnurl/lib");
+const assert = require("assert");
 const crypto = require("crypto");
 const lnurl = require("lnurl");
 const qrcode = require("qrcode");
@@ -41,26 +42,51 @@ function setupAuth(app) {
   passport.deserializeUser(function (id, done) {
     done(null, map.user.get(id) || null);
   });
-
-  app.get("/do-login", async function (req, res) {
-    if (req.query.k1 && req.query.key && req.query.sig) {
-      let session = map.session.get(req.query.k1);
-      if (!session) {
-        return res.status(400).send("Secret does not match any known session");
-      }
-      const { k1, sig, key } = req.query;
-      if (!verifyAuthorizationSignature(sig, k1, key)) {
-        return res.status(400).send("Invalid signature");
-      }
-      session.lnurlAuth = session.lnurlAuth || {};
-      session.lnurlAuth.linkingPublicKey = req.query.key;
-      await session.save();
-      return res.status(200).json({ status: "OK" });
+  
+  app.get(
+    "/do-login",
+    function (req, res, next) {
+      next();
+    },
+    async function (req, res) {
+      
+      
+      if (req.query.k1 || req.query.key || req.query.sig) {
+        // Check signature against provided linking public key.
+        // This request could originate from a mobile app (ie. not their browser).
+        let session;
+        assert.ok(
+          req.query.k1,
+          new HttpError('Missing required parameter: "k1"', 400)
+        );
+        assert.ok(
+          req.query.sig,
+          new HttpError('Missing required parameter: "sig"', 400)
+        );
+        assert.ok(
+          req.query.key,
+          new HttpError('Missing required parameter: "key"', 400)
+        );
+        session = map.session.get(req.query.k1);
+        assert.ok(
+          session,
+          new HttpError("Secret does not match any known session", 400)
+        );
+        const { k1, sig, key } = req.query;
+        assert.ok(
+          verifyAuthorizationSignature(sig, k1, key),
+          new HttpError("Invalid signature", 400)
+        );
+        session.lnurlAuth = session.lnurlAuth || {};
+        session.lnurlAuth.linkingPublicKey = req.query.key;
+        
+        await session.save();  
+        return res.status(200).json({ status: "OK" });
     }
-
+      
     req.session = req.session || {};
     req.session.lnurlAuth = req.session.lnurlAuth || {};
-    let k1 = req.session.lnurlAuth.k1 || generateSecret(32, "hex");
+    let k1 = req.session.lnurlAuth.k1 || null;
     if (!k1) {
       k1 = req.session.lnurlAuth.k1 = generateSecret(32, "hex");
       map.session.set(k1, req.session);
@@ -71,7 +97,8 @@ function setupAuth(app) {
       tag: "login"
     });
 
-    const callbackUrl = `https://${req.get("host")}/do-login?${params.toString()}`;
+    const callbackUrl =`https://${req.get("host")}/do-login?${params.toString()}`;
+    
     const encoded = lnurl.encode(callbackUrl).toUpperCase();
     const qrCode = await qrcode.toDataURL(encoded);
 
@@ -79,24 +106,31 @@ function setupAuth(app) {
       lnurl: encoded,
       qrCode: qrCode,
     });
-  });
+  }
+  );
 
-  app.get("/logout", function (req, res) {
+  app.get("/logout", function (req, res, next) {
     if (req.user) {
       req.session.destroy();
       return res.redirect("/");
     }
+    next();
   });
 
-  app.get("/me", function (req, res) {
+  app.get("/me", function (req, res, next) {
     res.json({ user: req.user ? req.user : null });
+
+    next();
   });
 
-  app.get("/profile", function (req, res) {
+  app.get("/profile", function (req, res, next) {
     if (!req.user) {
       return res.redirect("/login");
     }
+
     res.render("profile", { user: req.user });
+
+    next();
   });
 }
 

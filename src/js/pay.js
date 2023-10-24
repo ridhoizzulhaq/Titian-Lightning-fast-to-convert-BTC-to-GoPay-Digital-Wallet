@@ -1,62 +1,43 @@
 const jsConfetti = new JSConfetti();
+const payModal = new bootstrap.Modal('#pay');
+
+document.getElementById('pay').addEventListener('hidden.bs.modal', (event) => {
+    paymentActive = false;
+});
 
 let paymentActive = false;
 let paymentRequest;
 
-// Fungsi requestPayment
-async function requestPayment(amount, comment, callback) {
-    try {
-        const phoneNumber = document.getElementById('noPonsel').value;
-        if (!phoneNumber) {
-            alert("Please enter a phone number.");
-            return;
+async function fetchInvoice(amount, comment) {
+    const response = await fetch('/invoice', {
+        method: 'POST',
+        body: JSON.stringify({
+            amount: amount,
+            comment: comment,
+        }),
+        headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
+    });
 
-        const response = await fetch('/invoice', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                amount: amount,
-                comment: comment,
-                phoneNumber: phoneNumber
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.payment_request) {
-            paymentRequest = data.payment_request;
-            // Anda bisa menampilkan QR code atau informasi pembayaran lainnya di sini
-            // ...
-
-            // Jika Anda memiliki fungsi polling untuk memeriksa pembayaran, Anda bisa memulainya di sini
-            startPollingPayment(data.payment_hash, 1000, callback);
-        } else {
-            console.error("Pembayaran gagal:", data.message);
-        }
-    } catch (error) {
-        console.error("Terjadi kesalahan saat meminta pembayaran:", error);
+    if (!response.ok) {
+        throw new Error(response.error);
     }
+
+    return response.json();
 }
 
-document.getElementById('startPaymentBtn').addEventListener('click', function() {
-    const amount = document.getElementById('amount').value;
-    const comment = document.getElementById('comment').value;
-    requestPayment(amount, comment, success);
-});
-
-// ... (kode Anda yang lain, seperti fungsi startPollingPayment, success, dll.)
-
-// ... (kode Anda yang lain)
-
-
-    if(paymentActive) return;
+async function requestPayment(amount, comment, onSuccess) { 
+    if(paymentActive)
+        return;
 
     paymentActive = true;
 
-    const result = await fetchInvoice(amount, comment, phoneNumber);
+    document.querySelector('#pay .loading-text').textContent = "Loading payment data...";
+    payModal.show();
+
+    const result = await fetchInvoice(amount, comment);
 
     paymentRequest = result.payment_request;
 
@@ -75,7 +56,66 @@ document.getElementById('startPaymentBtn').addEventListener('click', function() 
 
         onSuccess();
     });
+}
 
+async function requestPaymentWebLN(amount, comment, onSuccess) { 
+    if(paymentActive)
+        return;
+
+    paymentActive = true;
+
+    if(window.webln) {
+        try {
+            document.querySelector('html').classList.add('wait');  
+            const result = await fetchInvoice(amount, comment);
+
+            await window.webln.enable();
+
+            const payResponse = await window.webln.sendPayment(result.payment_request);
+            const hash = await sha256(payResponse.preimage);
+
+            if (hash === result.payment_hash) {
+                if(onSuccess) { 
+                    onSuccess();
+                }
+            } else {
+                throw Error("payment_hash did not match.");
+            }
+        }
+        catch (e) {
+            throw Error(e);
+        }
+        finally {
+            paymentActive = false;
+            document.querySelector('html').classList.remove('wait');
+        }
+
+        return;
+    } 
+
+    document.querySelector('#pay .loading-text').textContent = "Loading payment data...";
+    payModal.show();
+
+    const result = await fetchInvoice(amount, comment);
+
+    paymentRequest = result.payment_request;
+
+    document.querySelector('#pay .loading-text').textContent = "Waiting for your payment...";
+    document.querySelector('#pay .qr-container').classList.remove('d-none');
+    document.querySelector('#pay .qr-link').href = "lightning:" + result.payment_request;
+    document.querySelector('#pay .qr').src = result.qrCode;
+
+    if (window.webln) {
+        document.querySelector('#pay .webln-button').classList.remove('d-none');
+    } 
+
+    startPollingPayment(result.payment_hash, 1000, function () {
+        payModal.hide();
+        paymentActive = false;
+
+        onSuccess();
+    });
+}
 
 async function startWebLNPayment() {
     try {
@@ -107,8 +147,42 @@ function startPollingPayment(payment_hash, timeout, onSuccess) {
     }, timeout);
 }
 
+function sha256(hexString) {
+    const match = hexString.match(/.{1,2}/g);
+    const msgUint8 = new Uint8Array(match.map((byte) => parseInt(byte, 16)));
+
+    return crypto.subtle.digest('SHA-256', msgUint8).then(hashBuffer => {
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    });
+}
+
 function success() {
+    const phoneNumber = document.getElementById('noPonsel').value;
+    if (phoneNumber) {
+        // Kirim nomor ponsel ke server
+        sendPhoneNumberToServer(phoneNumber);
+    }
     jsConfetti.addConfetti({
         emojis: ['🌈', '⚡️', '💥', '✨', '💫', '🌸'],
     });
+}
+
+async function sendPhoneNumberToServer(phoneNumber) {
+    const response = await fetch('/run-iak', {
+        method: 'POST',
+        body: JSON.stringify({ phoneNumber }),
+        headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+    });
+
+    const result = await response.json();
+    if (result.success) {
+        console.log("iak.py berhasil dijalankan!");
+    } else {
+        console.error("Terjadi kesalahan saat menjalankan iak.py");
+    }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "lapp-template",
+  "name": "titian",
   "version": "0.0.1",
   "description": "A project template to jump-start developing a ⚡ Lightning app.",
   "main": "src/server/server.js",
@@ -13,7 +13,7 @@
     "concurrently": "^7.2.1",
     "dotenv": "^16.0.3",
     "ejs": "^3.1.8",
-    "express": "^4.18.2",
+    "express": "^4.18.1",
     "express-ejs-layouts": "^2.5.1",
     "express-session": "^1.17.3",
     "http-proxy-middleware": "^2.0.6",
@@ -36,5 +36,7 @@
     "node",
     "glitch",
     "express"
-  ]
+  ],
+  "devDependencies": {},
+  "author": "Ridho Izzulhaq"
 }
