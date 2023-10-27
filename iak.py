@@ -21,7 +21,7 @@ if len(sys.argv) < 2:
     sys.exit()
 
 # Isi dengan informasi yang sesuai
-username = "081366725136"
+username = ""
 customer_id = sys.argv[1]  # Ambil customer_id dari argumen baris perintah
 ref_id = "order" + generate_random_code()
 product_code = "go1"
